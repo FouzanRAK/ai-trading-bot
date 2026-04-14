@@ -2,15 +2,21 @@ import yfinance as yf
 import pandas as pd
 from xgboost import XGBClassifier
 
+# ---------------- STOCKS ----------------
 TICKERS = ["AAPL", "MSFT", "AMZN", "NVDA", "TSLA"]
 
 MODELS = {}
 
-# ---------------- DATA ----------------
+# ---------------- DOWNLOAD DATA ----------------
 def get_data(ticker):
     df = yf.download(ticker, period="6mo", interval="1d")
+
+    if df is None or df.empty:
+        raise Exception(f"No data for {ticker}")
+
     df = df.dropna()
     df = df.reset_index()
+
     return df
 
 # ---------------- FEATURES ----------------
@@ -25,6 +31,10 @@ def create_features(df):
     df["target"] = (df["Close"].shift(-1) > df["Close"]).astype(int)
 
     df = df.dropna()
+
+    if len(df) < 30:
+        raise Exception("Not enough data after feature engineering")
+
     return df
 
 # ---------------- MODEL ----------------
@@ -41,6 +51,7 @@ def train_model(df):
     model.fit(df[features], df["target"])
     return model
 
+# ---------------- GET MODEL ----------------
 def get_model(ticker, df):
     if ticker in MODELS:
         return MODELS[ticker]
@@ -49,13 +60,14 @@ def get_model(ticker, df):
     MODELS[ticker] = model
     return model
 
-# ---------------- ANALYZE ----------------
+# ---------------- ANALYZE ONE STOCK ----------------
 def analyze(ticker):
-    df = create_features(get_data(ticker))
+    df = get_data(ticker)
+    df = create_features(df)
 
     model = get_model(ticker, df)
 
-    latest = df.iloc[-1][["return","ma5","ma20","volatility"]].values.reshape(1,-1)
+    latest = df.iloc[-1][["return", "ma5", "ma20", "volatility"]].values.reshape(1, -1)
 
     prob = model.predict_proba(latest)[0][1]
 
@@ -66,14 +78,17 @@ def analyze(ticker):
         "df": df.tail(60)
     }
 
-# ---------------- SCAN ----------------
+# ---------------- SCAN MARKET ----------------
 def scan_market():
     results = []
 
     for t in TICKERS:
         try:
             results.append(analyze(t))
-        except:
-            pass
+        except Exception as e:
+            print(f"[ERROR] {t}: {e}")
+
+    if len(results) == 0:
+        raise Exception("ALL TICKERS FAILED — check internet or yfinance")
 
     return sorted(results, key=lambda x: x["score"], reverse=True)

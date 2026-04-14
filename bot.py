@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 from xgboost import XGBClassifier
-from news import fake_news_sentiment
 
 TICKERS = ["AAPL", "MSFT", "AMZN", "NVDA", "TSLA"]
 
@@ -10,7 +9,8 @@ MODELS = {}
 # ---------------- DATA ----------------
 def get_data(ticker):
     df = yf.download(ticker, period="6mo", interval="1d")
-    df.dropna(inplace=True)
+    df = df.dropna()
+    df = df.reset_index()
     return df
 
 # ---------------- FEATURES ----------------
@@ -24,7 +24,7 @@ def create_features(df):
 
     df["target"] = (df["Close"].shift(-1) > df["Close"]).astype(int)
 
-    df.dropna(inplace=True)
+    df = df.dropna()
     return df
 
 # ---------------- MODEL ----------------
@@ -32,7 +32,7 @@ def train_model(df):
     features = ["return", "ma5", "ma20", "volatility"]
 
     model = XGBClassifier(
-        n_estimators=60,
+        n_estimators=50,
         max_depth=3,
         learning_rate=0.1,
         eval_metric="logloss"
@@ -49,7 +49,7 @@ def get_model(ticker, df):
     MODELS[ticker] = model
     return model
 
-# ---------------- ANALYSIS ----------------
+# ---------------- ANALYZE ----------------
 def analyze(ticker):
     df = create_features(get_data(ticker))
 
@@ -59,19 +59,21 @@ def analyze(ticker):
 
     prob = model.predict_proba(latest)[0][1]
 
-    sentiment = fake_news_sentiment(ticker)
-
-    # combine ML + news
-    final_score = (prob * 0.7) + ((sentiment + 1) / 2 * 0.3)
-
     return {
         "ticker": ticker,
         "price": float(df["Close"].iloc[-1]),
-        "prob": float(prob),
-        "sentiment": float(sentiment),
-        "score": float(final_score),
+        "score": float(prob),
         "df": df.tail(60)
     }
 
+# ---------------- SCAN ----------------
 def scan_market():
-    return sorted([analyze(t) for t in TICKERS], key=lambda x: x["score"], reverse=True)
+    results = []
+
+    for t in TICKERS:
+        try:
+            results.append(analyze(t))
+        except:
+            pass
+
+    return sorted(results, key=lambda x: x["score"], reverse=True)
